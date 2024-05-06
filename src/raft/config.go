@@ -9,9 +9,9 @@ package raft
 //
 
 import (
-	"labrpc"
 	"log"
 	"math/rand"
+	"project3/src/labrpc"
 	"runtime"
 	"sync"
 	"testing"

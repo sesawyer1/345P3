@@ -1,0 +1,62 @@
+// select {
+			// // conversion to candidate case
+			// case <-time.After(time.Duration(rf.heartbeatTimer) * time.Millisecond):
+
+			// 	// increment curr term and vote for self
+			// 	rf.currentTerm += 1
+			// 	rf.votedFor = rf.me
+
+			// 	num, err := strconv.Atoi(rf.log[len(rf.log)-1])
+			// 	if err != nil {
+			// 		num = 0
+			// 	}
+
+			// 	args := RequestVoteArgs{
+			// 		Term:         rf.currentTerm,
+			// 		CandidateId:  rf.me,
+			// 		LastLogIndex: len(rf.log) - 1,
+			// 		LastLogTerm:  num,
+			// 	}
+
+			// 	reply := RequestVoteReply{
+			// 		Term:        rf.currentTerm,
+			// 		VoteGranted: false,
+			// 	}
+
+			// 	// send out vote requests
+			// 	numVotes := 0
+			// 	for index, _ := range rf.peers {
+			// 		if index != rf.me {
+			// 			rf.sendRequestVote(index, &args, &reply)
+			// 		}
+			// 		if reply.VoteGranted {
+			// 			numVotes += 1
+			// 		}
+
+			// 	}
+			// 	// if votes > half, become leader
+			// 	if numVotes > len(rf.peers)/2 {
+			// 		rf.state = 2
+			// 	}
+			// // if received heartbeat, go back to follower
+			// case <-rf.heartbeatChan:
+			// 	rf.state = 0
+			// }
+
+
+
+
+candidate potential:
+default:
+				// if no heartbeat and election timer is normal
+				fmt.Printf("C%v hasn't received heartbeat. Starting initial election C%v...", rf.me, rf.me)
+				rf.elections(*electionTimer)
+
+			case <-rf.heartbeatChan: // if received a heartbeat
+				fmt.Printf("C%v has received heartbeat. Stepping down to follower F%v...", rf.me, rf.me)
+				rf.state = 0
+				electionTimer.Reset(time.Duration(rf.electionTimer) * time.Millisecond)
+
+			case <-electionTimer.C: // if election timer times out
+				fmt.Printf("C%v election timer has timed out. Starting new election...", rf.me)
+				rf.elections(*electionTimer)
