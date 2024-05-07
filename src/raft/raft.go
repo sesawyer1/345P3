@@ -217,7 +217,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesResul
 	// Your code here (3, 4).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	//fmt.Printf("Leader %d sending heartbeats; Term: %d\n", rf.me, rf.currentTerm)
+	fmt.Printf("Leader %d sending heartbeats; Term: %d\n", rf.me, rf.currentTerm)
 
 	if (args.Term < rf.currentTerm) || (args.PrevLogIndex > len(rf.log)) {
 		reply.Term = rf.currentTerm
