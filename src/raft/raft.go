@@ -171,7 +171,7 @@ type AppendEntriesArgs struct {
 	LeaderId     int
 	PrevLogIndex int
 	PrevLogTerm  int
-	Entries      []int
+	Entries      []Log
 	LeaderCommit int
 }
 
@@ -189,12 +189,23 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	fmt.Printf("server %v received a vote request\n", rf.me)
 
-	// no vote
+	// PROJECT 4 CODE //////////////////////////////////////////////
+	// no vote --> term of last long entry has to be up-to-date
 	if args.Term < rf.currentTerm {
 		reply.Term = rf.currentTerm
 		reply.VoteGranted = false
 		return
 	}
+
+	if args.Term == rf.currentTerm {
+		if len(rf.log) > args.LastLogIndex {
+			reply.Term = rf.currentTerm
+			reply.VoteGranted = false // log is not up-to-date
+			return
+		}
+	}
+
+	///////////////////////////////////////////////////////////////
 
 	// update rf term if the candidate has higher term
 	if args.Term > rf.currentTerm {
@@ -224,10 +235,22 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesResul
 	defer rf.mu.Unlock()
 	fmt.Printf("Follower %d receiving heartbeats; Term: %d\n", rf.me, rf.currentTerm)
 
-	if (args.Term < rf.currentTerm) || (args.PrevLogIndex > len(rf.log)) {
+	// we need to go back and double check the indexing here (if index out of bounds look here)
+
+	if args.Term < rf.currentTerm { //|| (args.PrevLogIndex > len(rf.log))
 		reply.Term = rf.currentTerm
 		reply.Success = false
 		return
+	}
+
+	// if prev long term doesn't match
+
+	if args.PrevLogIndex >= 0 && args.PrevLogIndex < len(rf.log) {
+		if args.PrevLogTerm != rf.log[args.PrevLogIndex].Term {
+			reply.Term = rf.currentTerm
+			reply.Success = false
+			return
+		}
 	}
 
 	if args.Term > rf.currentTerm {
@@ -236,19 +259,22 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesResul
 		rf.state = 0
 	}
 
+	// if existing entry conflicts with new one, delete exisitng and all that follow it
 	for index, entry := range args.Entries {
 		pos := args.PrevLogIndex + 1 + index
 		if pos < len(rf.log) {
-			if rf.log[pos].Term != entry {
+			if rf.log[pos].Term != entry.Term {
 				rf.log = rf.log[:pos] // truncate the log
 			}
 		}
-		rf.log = append(rf.log, Log{0, entry})
+		rf.log = append(rf.log, Log{0, entry.Term}) // append new entries not already in the log
 	}
 
+	// leader commit > rf commit index
 	if args.LeaderCommit > rf.commitIndex {
 		rf.commitIndex = min(args.LeaderCommit, len(rf.log))
 	}
+
 	reply.Success = true
 	reply.Term = rf.currentTerm
 
@@ -311,6 +337,31 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	isLeader := true
 
 	// Your code here (4).
+	// if not leader, return false
+
+	if rf.safeGetState() != 2 {
+		isLeader = false
+		return index, term, isLeader
+	}
+
+	// POTENTIALLY WRONG
+
+	// add command to log
+	rf.mu.Lock()
+	rf.log = append(rf.log, Log{command, rf.currentTerm})
+	index = len(rf.log)
+	term = rf.currentTerm
+	rf.mu.Unlock()
+
+	ApplyMsg := ApplyMsg{
+		CommandValid: true,
+		Command:      command,
+		CommandIndex: index,
+	}
+	rf.applyCh <- ApplyMsg
+
+	// heartbeat with the client command to all followers
+	rf.broadcastHeartbeat()
 
 	return index, term, isLeader
 }
@@ -352,6 +403,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.mu.Unlock()
 	rf.electionTimeGenerator()
 	rf.heartBeatTimeGenerator()
+
+	// project 4 initializations
+	rf.nextIndex = make([]int, len(rf.peers))
+	rf.matchIndex = make([]int, len(rf.peers))
 
 	go func() {
 		rf.startInit()
@@ -455,6 +510,13 @@ func (rf *Raft) safeGetTerm() int {
 	defer rf.mu.Unlock()
 
 	return rf.currentTerm
+}
+
+func (rf *Raft) safeGetState() int {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	return rf.state
 }
 
 func (rf *Raft) heartBeatTimeGenerator() {
@@ -584,12 +646,54 @@ func (rf *Raft) broadcastHeartbeat() {
 		LeaderCommit: rf.commitIndex,
 	}
 
+	success := int32(0) // start at 0 because sending heartbeats
+	heartbeatChan := make(chan bool, len(rf.peers)-1)
 	for index := range rf.peers {
 		if index != rf.me {
 			go func(server int) {
 				reply := AppendEntriesResults{}
-				rf.sendAppendEntries(server, &entryArgs, &reply)
+
+				if len(rf.log)-1 >= rf.nextIndex[server] {
+					nextIndex := rf.nextIndex[server]
+					entryArgs.Entries = rf.log[nextIndex:]
+				}
+
+				if ok := rf.sendAppendEntries(server, &entryArgs, &reply); ok && reply.Success {
+					heartbeatChan <- true
+					rf.nextIndex[server] += 1 // might be rf.log length
+					rf.matchIndex[server] += 1
+
+				} else {
+					heartbeatChan <- false
+					rf.nextIndex[server] -= 1
+					rf.sendAppendEntries(server, &entryArgs, &reply) // decrement next index and try again
+				}
 			}(index)
 		}
 	}
+
+	go func() {
+		for heartbeat_true := range heartbeatChan {
+			if heartbeat_true {
+				atomic.AddInt32(&success, 1)
+			}
+		}
+	}()
+
+	go func() {
+		maxTimeOut := time.After(time.Duration(500) * time.Millisecond)
+		for {
+			select {
+			case <-maxTimeOut:
+				fmt.Printf("Leader %d timed out on receiving responses to heartbeats\n", rf.me)
+				return
+			default:
+				if atomic.LoadInt32(&success) > int32(len(rf.peers)/2) {
+					fmt.Printf("Leader %d received %d replies from heartbeats\n", rf.me, success)
+					rf.commitIndex += 1
+					return
+				}
+			}
+		}
+	}()
 }
