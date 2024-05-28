@@ -186,7 +186,6 @@ func (cfg *config) start1(i int) {
 					cfg.maxIndex = m.CommandIndex
 				}
 				cfg.mu.Unlock()
-
 				if m.CommandIndex > 1 && prevok == false {
 					err_msg = fmt.Sprintf("server %v apply out of order %v", i, m.CommandIndex)
 				}
@@ -453,6 +452,8 @@ func (cfg *config) one(cmd int, expectedServers int, retry bool) int {
 			t1 := time.Now()
 			for time.Since(t1).Seconds() < 2 {
 				nd, cmd1 := cfg.nCommitted(index)
+				fmt.Println("ENTERED FOR LOOP")
+				fmt.Printf("nd: %v, cmd1: %v, expectedServers: %v\n", nd, cmd1, expectedServers)
 				if nd > 0 && nd >= expectedServers {
 					// committed
 					if cmd2, ok := cmd1.(int); ok && cmd2 == cmd {
@@ -462,7 +463,9 @@ func (cfg *config) one(cmd int, expectedServers int, retry bool) int {
 				}
 				time.Sleep(20 * time.Millisecond)
 			}
+			_, cmd1 := cfg.nCommitted(index)
 			if retry == false {
+				fmt.Println(cmd1.(int))
 				cfg.t.Fatalf("one(%v) failed to reach agreement", cmd)
 			}
 		} else {

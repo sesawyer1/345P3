@@ -8,12 +8,14 @@ package raft
 // test with the original before submitting.
 //
 
-import "testing"
-import "fmt"
-import "time"
-import "math/rand"
-import "sync/atomic"
-import "sync"
+import (
+	"fmt"
+	"math/rand"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
 
 // The tester generously allows solutions to complete elections in one second
 // (much more than the paper's range of timeouts).
@@ -92,15 +94,20 @@ func TestBasicAgree4A(t *testing.T) {
 
 	iters := 3
 	for index := 1; index < iters+1; index++ {
+		fmt.Println("ENTERED LOOP")
 		nd, _ := cfg.nCommitted(index)
 		if nd > 0 {
 			t.Fatalf("some have committed before Start()")
 		}
+		fmt.Println("PASSED FIRST IF")
 
 		xindex := cfg.one(index*100, servers, false)
+		fmt.Printf("XINDEX %v", xindex)
+
 		if xindex != index {
 			t.Fatalf("got index %v but expected %v", xindex, index)
 		}
+		fmt.Println("PASSED SECOND IF")
 	}
 
 	cfg.end()
@@ -631,7 +638,6 @@ func TestPersistC4B(t *testing.T) {
 	cfg.end()
 }
 
-//
 // Test the scenarios described in Figure 8 of the extended Raft paper. Each
 // iteration asks a leader, if there is one, to insert a command in the Raft
 // log.  If there is a leader, that leader will fail quickly with a high
@@ -640,7 +646,6 @@ func TestPersistC4B(t *testing.T) {
 // alive servers isn't enough to form a majority, perhaps start a new server.
 // The leader in a new term may try to finish replicating log entries that
 // haven't been committed yet.
-//
 func TestFigure84B(t *testing.T) {
 	servers := 5
 	cfg := make_config(t, servers, false)
